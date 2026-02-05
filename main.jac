@@ -1,184 +1,200 @@
-import from uuid { uuid4 }
+
+"""TaskFlow - A multi-user todo app with AI meal planning."""
+
+cl {
+    import from frontend { app as ClientApp }
+
+    def:pub app -> obj {
+        return
+            <ClientApp />;
+    }
+}
+
 import from byllm.lib { Model }
-import from typing { Any }
-cl import "./styles.css";
+import from uuid { uuid4 }
 
-# cd my-todo
-# source .venv/bin/activate
-# jac start
+glob llm = Model(model_name="ollama/llama3");
 
-# venv setup:
-# rm -rf .venv
-# create venv with py3.12 arm64: 
-#   /opt/homebrew/opt/python@3.12/bin/python3.12 -m venv .venv
-# create pip: 
-    # python -m ensurepip --upgrade
-    # python -m pip install -U pip setuptools wheel
-    # python -m pip --version
-# install jaseci: pip install jaseci
-
-
-glob llm = Model(
-    model_name="ollama/llama3"
-);
+# --- AI Types ---
 
 enum Category { WORK, PERSONAL, SHOPPING, HEALTH, OTHER }
+
+enum Unit { PIECE, LB, OZ, CUP, TBSP, TSP, CLOVE, BUNCH }
+
+obj Ingredient {
+    has name: str;
+    has quantity: float;
+    has unit: Unit;
+    has cost: float;
+    has carby: bool;
+}
+
+sem Ingredient.cost = "Estimated cost in USD";
+sem Ingredient.carby = "True if this ingredient is high in carbohydrates";
+
+"""Categorize a todo based on its title."""
+def categorize(title: str) -> Category by llm();
+
+"""Generate a shopping list of ingredients needed for a described meal."""
+def generate_ingredients(meal_description: str) -> list[Ingredient] by llm();
+
+# --- Data Nodes ---
 
 node Todo {
     has id: str,
         title: str,
-        done: bool = False,
+        completed: bool = False,
         category: str = "other";
 }
 
-# """Categorize a todo based on its title.
-# Return exactly one of: WORK, PERSONAL, SHOPPING, HEALTH, OTHER.
-# No punctuation. No explanation. No extra words.
-# """
-# def categorize(title: str) -> Category by llm();
+node MealIngredient {
+    has name: str,
+        quantity: float,
+        unit: str,
+        cost: float,
+        carby: bool;
+}
 
-# """Add a todo with AI categorization."""
-# def:pub add_todo(title: str) -> dict {
-#     category = str(categorize(title)).split(".")[-1].lower();
-#     todo = root ++> Todo(id=str(uuid4()), title=title, category=category);
-#     return {
-#         "id": todo[0].id, "title": todo[0].title,
-#         "done": todo[0].done, "category": todo[0].category
-#     };
-# }
+# --- Todo Walkers ---
 
-"""Classify this todo title into exactly ONE of:
-WORK, PERSONAL, SHOPPING, HEALTH, OTHER
+walker:priv AddTodo {
+    has title: str;
 
-Return ONLY the category word. No punctuation. No explanation.
-If unsure, return OTHER.
-"""
-def categorize_raw(title: str) -> str by llm();
-
-def normalize_category(raw: str) -> str {
-    cat = raw.strip().upper();
-    cat = cat.split()[0];
-    cat = cat.replace(".", "").replace(",", "").replace(":", "").replace(";", "");
-    if cat in ["WORK", "PERSONAL", "SHOPPING", "HEALTH", "OTHER"] {
-        return cat.lower();
+    can create with `root entry {
+        category = str(categorize(self.title)).split(".")[-1].lower();
+        new_todo = here ++> Todo(
+            id=str(uuid4()),
+            title=self.title,
+            category=category
+        );
+        report {
+            "id": new_todo[0].id,
+            "title": new_todo[0].title,
+            "completed": new_todo[0].completed,
+            "category": new_todo[0].category
+        };
     }
-    return "other";
 }
 
-def:pub add_todo(title: str) -> dict {
-    raw = categorize_raw(title);
-    print("LLM raw:", raw);
-    category = normalize_category(raw);
-    todo = root ++> Todo(id=str(uuid4()), title=title, category=category);
-    return {
-        "id": todo[0].id,
-        "title": todo[0].title, 
-        "done": todo[0].done,
-        "category": todo[0].category,
-        "raw": raw
-    };
+walker:priv ListTodos {
+    has todos: list = [];
+
+    can collect with `root entry {
+        visit [-->];
+    }
+
+    can gather with Todo entry {
+        self.todos.append({
+            "id": here.id,
+            "title": here.title,
+            "completed": here.completed,
+            "category": here.category
+        });
+    }
+
+    can report_all with `root exit {
+        report self.todos;
+    }
 }
 
-"""Get all todos."""
-def:pub get_todos -> list {
-    return [
-        {"id": t.id, "title": t.title, "done": t.done, "category": t.category}
-        for t in [root-->](`?Todo)
-    ];
-}
+walker:priv ToggleTodo {
+    has todo_id: str;
 
-"""Toggle a todo's done status."""
-def:pub toggle_todo(id: str) -> dict {
-    for todo in [root-->](`?Todo) {
-        if todo.id == id {
-            todo.done = not todo.done;
-            return {
-                "id": todo.id, "title": todo.title,
-                "done": todo.done, "category": todo.category
+    can search with `root entry {
+        visit [-->];
+    }
+
+    can toggle with Todo entry {
+        if here.id == self.todo_id {
+            here.completed = not here.completed;
+            report {
+                "id": here.id,
+                "completed": here.completed
             };
         }
     }
-    return {};
 }
 
-"""Delete a todo."""
-def:pub delete_todo(id: str) -> dict {
-    for todo in [root-->](`?Todo) {
-        if todo.id == id {
-            del todo;
-            return {"deleted": id};
+walker:priv DeleteTodo {
+    has todo_id: str;
+
+    can search with `root entry {
+        visit [-->];
+    }
+
+    can delete with Todo entry {
+        if here.id == self.todo_id {
+            del here;
+            report {"deleted": self.todo_id};
         }
     }
-    return {};
 }
 
+# --- Meal Planner Walkers ---
 
-cl def:pub app -> Any {
-    has items: list = [],
-        text: str = "";
+walker:priv GenerateShoppingList {
+    has meal_description: str;
 
-    async can with entry {
-        items = await get_todos();
-    }
-
-    async def add -> None {
-        if text.trim() {
-            todo = await add_todo(text.trim());
-            items = items.concat([todo]);
-            text = "";
+    can generate with `root entry {
+        # First clear old ingredients
+        visit [-->];
+        # Then generate new ones
+        ingredients = generate_ingredients(self.meal_description);
+        result: list = [];
+        for ing in ingredients {
+            ing_data = {
+                "name": ing.name,
+                "quantity": ing.quantity,
+                "unit": str(ing.unit).split(".")[-1].lower(),
+                "cost": ing.cost,
+                "carby": ing.carby
+            };
+            here ++> MealIngredient(
+                name=ing_data["name"],
+                quantity=ing_data["quantity"],
+                unit=ing_data["unit"],
+                cost=ing_data["cost"],
+                carby=ing_data["carby"]
+            );
+            result.append(ing_data);
         }
+        report result;
     }
 
-    async def toggle(id: str) -> None {
-        await toggle_todo(id);
-        items = items.map(
-            lambda t: any -> any {
-                return {"id": t.id, "title": t.title, "done": not t.done}
-                if t.id == id else t;
-            }
-        );
+    can clear_old with MealIngredient entry {
+        del here;
+    }
+}
+
+walker:priv ListMealPlan {
+    has ingredients: list = [];
+
+    can collect with `root entry {
+        visit [-->];
     }
 
-    async def remove(id: str) -> None {
-        await delete_todo(id);
-        items = items.filter(lambda t: any -> bool { return t.id != id; });
+    can gather with MealIngredient entry {
+        self.ingredients.append({
+            "name": here.name,
+            "quantity": here.quantity,
+            "unit": here.unit,
+            "cost": here.cost,
+            "carby": here.carby
+        });
     }
 
-    remaining = items.filter(lambda t: any -> bool { return not t.done; }).length;
+    can report_all with `root exit {
+        report self.ingredients;
+    }
+}
 
-    return
-        <div class="container">
-            <h1>Todo App</h1>
-            <div class="input-row">
-                <input
-                    class="input"
-                    value={text}
-                    onChange={lambda e: any -> None { text = e.target.value; }}
-                    onKeyPress={lambda e: any -> None {
-                        if e.key == "Enter" { add(); }
-                    }}
-                    placeholder="What needs to be done?"
-                />
-                <button class="btn-add" onClick={add}>Add</button>
-            </div>
-            {[
-                <div key={t.id} class="todo-item">
-                    <input
-                        type="checkbox"
-                        checked={t.done}
-                        onChange={lambda -> None { toggle(t.id); }}
-                    />
-                    <span class={"todo-title " + ("todo-done" if t.done else "")}>
-                        {t.title}
-                    </span>
-                    <button
-                        class="btn-delete"
-                        onClick={lambda -> None { remove(t.id); }}
-                    >
-                        X
-                    </button>
-                </div> for t in items
-            ]}
-            <div class="count">{remaining} items remaining</div>
-        </div>;
+walker:priv ClearMealPlan {
+    can collect with `root entry {
+        visit [-->];
+    }
+
+    can clear with MealIngredient entry {
+        del here;
+        report {"cleared": True};
+    }
 }
