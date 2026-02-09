@@ -11,6 +11,21 @@ body {
     -webkit-font-smoothing: antialiased;
 }
 
+.due-badge {
+    color: #ffffff;
+    font-size: 0.9rem;
+    margin-left: 10px;
+    opacity: 0.9;
+}
+
+.overdue-toggle {
+    color: white;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.95rem;
+}
+
 /* App Layout */
 .app-container {
     min-height: 100vh; position: absolute; top: 0; left: 0; right: 0; bottom: 0;

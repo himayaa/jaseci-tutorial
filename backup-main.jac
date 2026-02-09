@@ -16,6 +16,7 @@ cl import "./styles.css";
     # python -m pip install -U pip setuptools wheel
     # python -m pip --version
 # install jaseci: pip install jaseci
+# if not working: jac clean --all
 
 
 glob llm = Model(

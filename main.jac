@@ -12,8 +12,9 @@ cl {
 
 import from byllm.lib { Model }
 import from uuid { uuid4 }
+import from datetime { date }
 
-glob llm = Model(model_name="ollama/llama3");
+glob llm = Model(model_name="ollama/llama3:latest");
 
 # --- AI Types ---
 
@@ -44,7 +45,8 @@ node Todo {
     has id: str,
         title: str,
         completed: bool = False,
-        category: str = "other";
+        category: str = "other",
+        due_date: str = ""; 
 }
 
 node MealIngredient {
@@ -57,26 +59,29 @@ node MealIngredient {
 
 # --- Todo Walkers ---
 
-walker:priv AddTodo {
-    has title: str;
+walker:pub AddTodo {
+    has title: str,
+    due_date: str = "";
 
     can create with `root entry {
         category = str(categorize(self.title)).split(".")[-1].lower();
         new_todo = here ++> Todo(
             id=str(uuid4()),
             title=self.title,
-            category=category
+            category=category,
+            due_date=self.due_date
         );
         report {
             "id": new_todo[0].id,
             "title": new_todo[0].title,
             "completed": new_todo[0].completed,
-            "category": new_todo[0].category
+            "category": new_todo[0].category,
+            "due_date": new_todo[0].due_date
         };
     }
 }
 
-walker:priv ListTodos {
+walker:pub ListTodos {
     has todos: list = [];
 
     can collect with `root entry {
@@ -84,11 +89,14 @@ walker:priv ListTodos {
     }
 
     can gather with Todo entry {
+        today = date.today().isoformat();
+        is_overdue = (here.due_date != "") and (here.due_date < today) and (not here.completed);
         self.todos.append({
             "id": here.id,
             "title": here.title,
             "completed": here.completed,
-            "category": here.category
+            "category": here.category,
+            "due_date": here.due_date
         });
     }
 
@@ -97,7 +105,7 @@ walker:priv ListTodos {
     }
 }
 
-walker:priv ToggleTodo {
+walker:pub ToggleTodo {
     has todo_id: str;
 
     can search with `root entry {
@@ -115,7 +123,7 @@ walker:priv ToggleTodo {
     }
 }
 
-walker:priv DeleteTodo {
+walker:pub DeleteTodo {
     has todo_id: str;
 
     can search with `root entry {
@@ -132,7 +140,7 @@ walker:priv DeleteTodo {
 
 # --- Meal Planner Walkers ---
 
-walker:priv GenerateShoppingList {
+walker:pub GenerateShoppingList {
     has meal_description: str;
 
     can generate with `root entry {
@@ -166,7 +174,7 @@ walker:priv GenerateShoppingList {
     }
 }
 
-walker:priv ListMealPlan {
+walker:pub ListMealPlan {
     has ingredients: list = [];
 
     can collect with `root entry {
@@ -188,7 +196,7 @@ walker:priv ListMealPlan {
     }
 }
 
-walker:priv ClearMealPlan {
+walker:pub ClearMealPlan {
     can collect with `root entry {
         visit [-->];
     }

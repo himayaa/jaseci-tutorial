@@ -26,7 +26,9 @@ def:pub app -> obj {
         todosLoading: bool = True,
         mealInput: str = "",
         ingredients: list = [],
-        ingredientsLoading: bool = False;
+        ingredientsLoading: bool = False,
+        showOverdueOnly: bool = False,
+        newTodoDue: str = "";
 
     can with entry {
         isLoggedIn = jacIsLoggedIn();
@@ -67,9 +69,28 @@ def:pub app -> obj {
 
     if isLoggedIn {
         totalCost = getIngredientsTotal();
+        overdueTodos = todos.filter(
+            lambda t: any -> bool { return t.is_overdue; }
+        );
+        visibleTodos = overdueTodos if showOverdueOnly else todos;
         return
             <div className="app-container">
                 <div className="app-content">
+                        <div className="card">
+                            <div style={{"display":"flex","alignItems":"center","justifyContent":"space-between"}}>
+                                <label className="overdue-toggle">
+                                    <input
+                                        type="checkbox"
+                                        checked={showOverdueOnly}
+                                        onChange={lambda e: any -> None { showOverdueOnly = e.target.checked; }}
+                                    />
+                                    Show overdue only
+                                </label>
+                                <div style={{"color":"rgba(255,255,255,0.7)"}}>
+                                    Overdue: {overdueTodos.length}
+                                </div>
+                            </div>
+                        </div>
                     <div className="card">
                         <div className="card-header">
                             <div>
@@ -95,6 +116,12 @@ def:pub app -> obj {
                                         placeholder="What needs to be done?"
                                         className="todo-input"
                                     />
+                                    <input
+                                        type="date"
+                                        value={newTodoDue}
+                                        onChange={lambda e: any -> None { newTodoDue = e.target.value; }}
+                                        className="todo-date"
+                                    />
                                     <button
                                         onClick={lambda -> None { addTodo(); }}
                                         className="btn-add"
@@ -112,7 +139,7 @@ def:pub app -> obj {
                                             <div className="empty-message">
                                                 No tasks yet. Add one above!
                                             </div>
-                                        ) if todos.length == 0 else (
+                                        ) if visibleTodos.length == 0 else (
                                             <div>
                                                 {[
                                                     <TodoItem
@@ -120,7 +147,7 @@ def:pub app -> obj {
                                                         todo={todo}
                                                         onToggle={toggleTodo}
                                                         onDelete={deleteTodo}
-                                                    /> for todo in todos
+                                                    /> for todo in visibleTodos
                                                 ]}
                                             </div>
                                         )}
