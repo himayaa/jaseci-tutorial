@@ -38,7 +38,9 @@ install pip:
 ```
 
 install jaseci: `pip install jaseci`
+
 run with: `jac start`
+
 if bundle isn't built: `jac clean --all` then try again.
 
 I used ollama to test this app. Install ollama or provide your own API key to run this app.
